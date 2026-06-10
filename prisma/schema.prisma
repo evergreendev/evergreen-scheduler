@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model TeamMember {
+  id                 String    @id @default(cuid())
+  name               String
+  email              String    @unique
+  role               Role
+  active             Boolean   @default(true)
+  googleRefreshToken String?
+  googleCalendarId   String    @default("primary")
+  lastBookedAt       DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  writerBookings       Booking[] @relation("WriterBookings")
+  photographerBookings Booking[] @relation("PhotographerBookings")
+
+  @@index([role, active])
+}
+
+model Booking {
+  id             String   @id @default(cuid())
+  customerName   String
+  customerEmail  String
+  startTime      DateTime
+  endTime        DateTime
+  writerId       String
+  photographerId String
+  googleEventId  String?
+  createdAt      DateTime @default(now())
+
+  writer       TeamMember @relation("WriterBookings", fields: [writerId], references: [id])
+  photographer TeamMember @relation("PhotographerBookings", fields: [photographerId], references: [id])
+
+  @@index([startTime, endTime])
+  @@index([writerId, startTime])
+  @@index([photographerId, startTime])
+}
+
+enum Role {
+  WRITER
+  PHOTOGRAPHER
+  SALES
+  DESIGNER
+}

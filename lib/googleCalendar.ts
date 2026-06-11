@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import type { TeamMember } from "@prisma/client";
-import { requiredEnv } from "@/lib/env";
+import { getGoogleRedirectUri, requiredEnv } from "@/lib/env";
 
 export type BusyBlock = {
   start: Date;
@@ -18,6 +18,8 @@ export type CalendarEventInput = {
     name: string;
     email: string;
   };
+  title?: string;
+  description?: string;
   startTime: Date;
   endTime: Date;
 };
@@ -25,13 +27,15 @@ export type CalendarEventInput = {
 const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
 ];
 
 export function getOAuthClient(refreshToken?: string | null) {
   const client = new google.auth.OAuth2(
     requiredEnv("GOOGLE_CLIENT_ID"),
     requiredEnv("GOOGLE_CLIENT_SECRET"),
-    requiredEnv("GOOGLE_REDIRECT_URI"),
+    getGoogleRedirectUri(),
   );
 
   if (refreshToken) {
@@ -53,10 +57,19 @@ export function getGoogleAuthUrl(state: string) {
   });
 }
 
-export async function exchangeCodeForRefreshToken(code: string) {
+export async function exchangeGoogleAuthCode(code: string) {
   const client = getOAuthClient();
   const { tokens } = await client.getToken(code);
-  return tokens.refresh_token ?? null;
+  client.setCredentials(tokens);
+
+  const oauth2 = google.oauth2({ version: "v2", auth: client });
+  const userInfo = await oauth2.userinfo.get();
+
+  return {
+    email: userInfo.data.email?.toLowerCase() ?? null,
+    name: userInfo.data.name ?? userInfo.data.email ?? "Connected Google user",
+    refreshToken: tokens.refresh_token ?? null,
+  };
 }
 
 export async function getFreeBusy(
@@ -104,6 +117,8 @@ export async function getFreeBusy(
 export async function createCalendarEvent({
   assignedMembers,
   customer,
+  title,
+  description,
   startTime,
   endTime,
 }: CalendarEventInput) {
@@ -131,8 +146,8 @@ export async function createCalendarEvent({
     calendarId: organizer.googleCalendarId || "primary",
     sendUpdates: "all",
     requestBody: {
-      summary: `Booking with ${customer.name}`,
-      description: "Created by Evergreen Scheduler.",
+      summary: title || `Booking with ${customer.name}`,
+      description: description || "Created by Evergreen Scheduler.",
       start: { dateTime: startTime.toISOString() },
       end: { dateTime: endTime.toISOString() },
       attendees,

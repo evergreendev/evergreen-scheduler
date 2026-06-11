@@ -2,12 +2,12 @@ import { Prisma, Role, type TeamMember } from "@prisma/client";
 import { getFreeBusy, type MemberBusyBlocks } from "@/lib/googleCalendar";
 import { prisma } from "@/lib/prisma";
 
-export const SLOT_MINUTES = 30;
+export const SLOT_MINUTES = 45;
 export const REQUIRED_ROLES = [Role.WRITER, Role.PHOTOGRAPHER] as const;
 
 type SchedulableMember = Pick<
   TeamMember,
-  "id" | "name" | "email" | "role" | "googleRefreshToken" | "googleCalendarId" | "lastBookedAt"
+  "id" | "name" | "email" | "role" | "sortOrder" | "googleRefreshToken" | "googleCalendarId" | "lastBookedAt"
 >;
 
 export type PublicSlot = {
@@ -88,11 +88,9 @@ export function getAvailableMembersForSlot(
   });
 }
 
-function pickLeastRecentlyBooked(members: SchedulableMember[]) {
+function pickHighestPriority(members: SchedulableMember[]) {
   return [...members].sort((a, b) => {
-    const aTime = a.lastBookedAt?.getTime() ?? 0;
-    const bTime = b.lastBookedAt?.getTime() ?? 0;
-    if (aTime !== bTime) return aTime - bTime;
+    if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
     return a.name.localeCompare(b.name);
   })[0];
 }
@@ -104,7 +102,7 @@ export async function getActiveRequiredMembers() {
       role: { in: [...REQUIRED_ROLES] },
       googleRefreshToken: { not: null },
     },
-    orderBy: [{ role: "asc" }, { name: "asc" }],
+    orderBy: [{ role: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
   });
 }
 
@@ -140,8 +138,8 @@ export async function selectMembersForSlot(startTime: Date, endTime: Date): Prom
 
   const busyBlocks = await getFreeBusy(members, startTime, endTime);
   const available = getAvailableMembersForSlot(members, busyBlocks, startTime, endTime);
-  const writer = pickLeastRecentlyBooked(available.filter((member) => member.role === Role.WRITER));
-  const photographer = pickLeastRecentlyBooked(available.filter((member) => member.role === Role.PHOTOGRAPHER));
+  const writer = pickHighestPriority(available.filter((member) => member.role === Role.WRITER));
+  const photographer = pickHighestPriority(available.filter((member) => member.role === Role.PHOTOGRAPHER));
 
   if (!writer || !photographer) {
     return null;

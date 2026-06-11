@@ -1,7 +1,19 @@
 import { NextResponse } from "next/server";
 import { getAvailableSlots } from "@/lib/scheduling";
 
-const MAX_RANGE_DAYS = 14;
+function parseDateInput(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const [, year, month, day] = match.map(Number);
+  const date = new Date(year, month - 1, day, 0, 0, 0, 0);
+
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+
+  return date;
+}
 
 export async function GET(request: Request) {
   try {
@@ -13,15 +25,17 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "start and end query parameters are required." }, { status: 400 });
     }
 
-    const start = new Date(startParam);
-    const end = new Date(endParam);
+    const requestedStart = parseDateInput(startParam);
+    const end = parseDateInput(endParam);
 
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
-      return NextResponse.json({ error: "Invalid date range." }, { status: 400 });
+    if (!requestedStart || !end) {
+      return NextResponse.json({ error: "Invalid calendar dates." }, { status: 400 });
     }
 
-    if (end.getTime() - start.getTime() > MAX_RANGE_DAYS * 24 * 60 * 60 * 1000) {
-      return NextResponse.json({ error: `Date range cannot exceed ${MAX_RANGE_DAYS} days.` }, { status: 400 });
+    const start = new Date(Math.max(requestedStart.getTime(), Date.now()));
+
+    if (start >= end) {
+      return NextResponse.json({ slots: [] });
     }
 
     const slots = await getAvailableSlots(start, end);

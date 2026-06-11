@@ -15,7 +15,7 @@ export default function Home() {
             Book only when every required role is covered.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-[#5f665f]">
-            Customers see 30-minute slots only when at least one writer and one photographer are available through Google Calendar FreeBusy.
+            Customers see 45-minute slots only when at least one writer and one photographer are available through Google Calendar FreeBusy.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link href="/book" className="rounded-full bg-[#f7c948] px-6 py-4 font-black text-[#12382b]">Open booking page</Link>

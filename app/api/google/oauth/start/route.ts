@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { getGoogleAuthUrl } from "@/lib/googleCalendar";
+import { requireAdminApi } from "@/lib/adminAuth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: Request) {
+  const unauthorized = await requireAdminApi();
+  if (unauthorized) return unauthorized;
+
   const url = new URL(request.url);
   const teamMemberId = url.searchParams.get("teamMemberId");
 

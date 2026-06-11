@@ -1,0 +1,1 @@
+ALTER TABLE "TeamMember" ALTER COLUMN "role" DROP NOT NULL;

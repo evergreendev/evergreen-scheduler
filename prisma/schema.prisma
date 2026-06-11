@@ -10,8 +10,9 @@ model TeamMember {
   id                 String    @id @default(cuid())
   name               String
   email              String    @unique
-  role               Role
+  role               Role?
   active             Boolean   @default(true)
+  sortOrder          Int       @default(0)
   googleRefreshToken String?
   googleCalendarId   String    @default("primary")
   lastBookedAt       DateTime?
@@ -22,30 +23,44 @@ model TeamMember {
   photographerBookings Booking[] @relation("PhotographerBookings")
 
   @@index([role, active])
+  @@index([role, active, sortOrder])
 }
 
 model Booking {
-  id             String   @id @default(cuid())
-  customerName   String
-  customerEmail  String
-  startTime      DateTime
-  endTime        DateTime
-  writerId       String
-  photographerId String
-  googleEventId  String?
-  createdAt      DateTime @default(now())
+  id                  String   @id @default(cuid())
+  customerName        String
+  customerEmail       String
+  customerFirstName   String
+  customerLastName    String
+  customerPhone       String
+  photoshootLocation  String
+  peopleCount         Int
+  interviewSubject    String
+  notes               String?
+  startTime           DateTime
+  endTime             DateTime
+  writerId            String?
+  photographerId      String?
+  googleEventId       String?
+  createdAt           DateTime @default(now())
 
-  writer       TeamMember @relation("WriterBookings", fields: [writerId], references: [id])
-  photographer TeamMember @relation("PhotographerBookings", fields: [photographerId], references: [id])
+  writer       TeamMember? @relation("WriterBookings", fields: [writerId], references: [id], onDelete: SetNull)
+  photographer TeamMember? @relation("PhotographerBookings", fields: [photographerId], references: [id], onDelete: SetNull)
 
   @@index([startTime, endTime])
   @@index([writerId, startTime])
   @@index([photographerId, startTime])
 }
 
+model SchedulerSettings {
+  id               String   @id @default("default")
+  eventTitle       String   @default("Booking with {customerName}")
+  eventDescription String   @default("Created by Evergreen Scheduler.")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
 enum Role {
   WRITER
   PHOTOGRAPHER
-  SALES
-  DESIGNER
 }

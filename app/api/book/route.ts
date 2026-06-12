@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getBookingSettings, renderBookingTemplate } from "@/lib/bookingSettings";
-import { createCalendarEvent } from "@/lib/googleCalendar";
+import { createCalendarEvent, isGoogleApiTimeoutError } from "@/lib/googleCalendar";
 import { prisma } from "@/lib/prisma";
 import { selectMembersForSlot, serializableTransactionOptions, SLOT_MINUTES } from "@/lib/scheduling";
 
@@ -96,16 +96,7 @@ export async function POST(request: Request) {
         throw new Error("BOOKING_CONFLICT");
       }
 
-      const eventId = await createCalendarEvent({
-        assignedMembers: [assigned.writer, assigned.photographer],
-        customer: { name: customerName, email: customerEmail },
-        title: eventTitle,
-        description: eventDescription,
-        startTime,
-        endTime,
-      });
-
-      const created = await tx.booking.create({
+      return tx.booking.create({
         data: {
           customerName,
           customerEmail,
@@ -120,17 +111,37 @@ export async function POST(request: Request) {
           endTime,
           writerId: assigned.writer.id,
           photographerId: assigned.photographer.id,
-          googleEventId: eventId,
         },
       });
+    }, serializableTransactionOptions);
 
-      await tx.teamMember.updateMany({
-        where: { id: { in: [assigned.writer.id, assigned.photographer.id] } },
-        data: { lastBookedAt: new Date() },
+    try {
+      const eventId = await createCalendarEvent({
+        assignedMembers: [assigned.writer, assigned.photographer],
+        customer: { name: customerName, email: customerEmail },
+        title: eventTitle,
+        description: eventDescription,
+        startTime,
+        endTime,
       });
 
-      return created;
-    }, serializableTransactionOptions);
+      await prisma.$transaction(async (tx) => {
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { googleEventId: eventId },
+        });
+
+        await tx.teamMember.updateMany({
+          where: { id: { in: [assigned.writer.id, assigned.photographer.id] } },
+          data: { lastBookedAt: new Date() },
+        });
+      });
+    } catch (error) {
+      await prisma.booking.delete({ where: { id: booking.id } }).catch((deleteError) => {
+        console.error("Unable to roll back booking after Google Calendar failure.", deleteError);
+      });
+      throw error;
+    }
 
     return NextResponse.json({ bookingId: booking.id }, { status: 201 });
   } catch (error) {
@@ -140,6 +151,10 @@ export async function POST(request: Request) {
 
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
       return NextResponse.json({ error: "That slot is being booked by someone else. Please try another time." }, { status: 409 });
+    }
+
+    if (isGoogleApiTimeoutError(error)) {
+      return NextResponse.json({ error: "Google Calendar timed out while creating the booking. Please try again." }, { status: 504 });
     }
 
     console.error(error);

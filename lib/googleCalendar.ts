@@ -30,6 +30,18 @@ const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
 ];
+const DEFAULT_GOOGLE_API_TIMEOUT_MS = 10_000;
+
+function getGoogleApiTimeoutMs() {
+  const configured = Number(process.env.GOOGLE_API_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_GOOGLE_API_TIMEOUT_MS;
+}
+
+export function isGoogleApiTimeoutError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const code = "code" in error ? String(error.code) : "";
+  return code === "ETIMEDOUT" || code === "ECONNABORTED" || /timeout|timed out/i.test(error.message);
+}
 
 export function getOAuthClient(refreshToken?: string | null) {
   const client = new google.auth.OAuth2(
@@ -96,6 +108,8 @@ export async function getFreeBusy(
           timeMax: timeMax.toISOString(),
           items: [{ id: member.googleCalendarId || "primary" }],
         },
+      }, {
+        timeout: getGoogleApiTimeoutMs(),
       });
 
       const calendarId = member.googleCalendarId || "primary";
@@ -152,6 +166,8 @@ export async function createCalendarEvent({
       end: { dateTime: endTime.toISOString() },
       attendees,
     },
+  }, {
+    timeout: getGoogleApiTimeoutMs(),
   });
 
   return response.data.id ?? null;

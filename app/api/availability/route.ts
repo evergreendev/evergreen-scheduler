@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { getMinimumBookingStartTime } from "@/lib/bookingRules";
+import { getBookingSettings } from "@/lib/bookingSettings";
 import { getAvailableSlots } from "@/lib/scheduling";
 
 function parseDateInput(value: string) {
@@ -32,13 +34,15 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Invalid calendar dates." }, { status: 400 });
     }
 
-    const start = new Date(Math.max(requestedStart.getTime(), Date.now()));
+    const start = new Date(Math.max(requestedStart.getTime(), getMinimumBookingStartTime().getTime()));
+    const settings = await getBookingSettings();
+    const constrainedEnd = settings.bookingEndDate && settings.bookingEndDate < end ? settings.bookingEndDate : end;
 
-    if (start >= end) {
+    if (start >= constrainedEnd) {
       return NextResponse.json({ slots: [] });
     }
 
-    const slots = await getAvailableSlots(start, end);
+    const slots = await getAvailableSlots(start, constrainedEnd);
     return NextResponse.json({ slots });
   } catch (error) {
     console.error(error);

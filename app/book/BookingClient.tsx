@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { getMinimumBookingStartTime, MIN_BOOKING_LEAD_HOURS } from "@/lib/bookingRules";
 
 type Slot = {
   start: string;
@@ -54,9 +55,9 @@ async function fetchAvailability(start: string, end: string) {
   return (data.slots ?? []) as Slot[];
 }
 
-function getVisibleRange(month: Date, today: Date) {
+function getVisibleRange(month: Date, minimumBookingStart: Date) {
   const days = getCalendarDays(month);
-  const start = new Date(Math.max(days[0].getTime(), today.getTime()));
+  const start = new Date(Math.max(days[0].getTime(), minimumBookingStart.getTime()));
   const end = addDays(days[days.length - 1], 1);
 
   return {
@@ -67,6 +68,7 @@ function getVisibleRange(month: Date, today: Date) {
 
 export function BookingClient() {
   const today = useMemo(() => new Date(), []);
+  const minimumBookingStart = useMemo(() => getMinimumBookingStartTime(today), [today]);
 
   const [selectedDate, setSelectedDate] = useState("");
   const [visibleMonth, setVisibleMonth] = useState(startOfMonth(today));
@@ -85,7 +87,7 @@ export function BookingClient() {
 
   useEffect(() => {
     let canceled = false;
-    const range = getVisibleRange(visibleMonth, today);
+    const range = getVisibleRange(visibleMonth, minimumBookingStart);
 
     fetchAvailability(range.start, range.end)
       .then((nextSlots) => {
@@ -109,10 +111,10 @@ export function BookingClient() {
     return () => {
       canceled = true;
     };
-  }, [today, visibleMonth]);
+  }, [minimumBookingStart, visibleMonth]);
 
   async function reloadAvailability() {
-    const range = getVisibleRange(visibleMonth, today);
+    const range = getVisibleRange(visibleMonth, minimumBookingStart);
     const nextSlots = await fetchAvailability(range.start, range.end);
     setSlots(nextSlots);
     setSelectedDate(nextSlots[0] ? toLocalDateKey(new Date(nextSlots[0].start)) : "");
@@ -220,7 +222,7 @@ export function BookingClient() {
           </div>
         </div>
         <p className="mt-3 text-sm leading-6 text-white/75">
-          Dates are enabled only when at least one active writer and one active photographer are both free.
+          Dates are enabled only when at least one active writer and one active photographer are both free. Bookings must be at least {MIN_BOOKING_LEAD_HOURS} hours in the future.
         </p>
 
         <div className="mt-6 rounded-2xl bg-white/10 p-4">

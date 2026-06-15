@@ -2,7 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { Role } from "@prisma/client";
 import { requireAdminPage } from "@/lib/adminAuth";
-import { getBookingSettings, updateBookingSettings } from "@/lib/bookingSettings";
+import { getBookingSettings, parseBookingEndDate, toBookingEndDateInputValue, updateBookingSettings } from "@/lib/bookingSettings";
 import { prisma } from "@/lib/prisma";
 import { TeamPriorityList } from "@/app/admin/team/TeamPriorityList";
 
@@ -96,8 +96,9 @@ async function updateEventSettings(formData: FormData) {
 
   const eventTitle = String(formData.get("eventTitle") ?? "").trim();
   const eventDescription = String(formData.get("eventDescription") ?? "").trim();
+  const bookingEndDate = parseBookingEndDate(String(formData.get("bookingEndDate") ?? ""));
 
-  await updateBookingSettings(eventTitle, eventDescription);
+  await updateBookingSettings(eventTitle, eventDescription, bookingEndDate);
   revalidatePath("/admin/team");
   revalidatePath("/book");
 }
@@ -160,6 +161,15 @@ export default async function TeamPage({
                 defaultValue={settings.eventDescription}
                 rows={4}
                 className="resize-none rounded-xl border border-[#d8c7a3] px-4 py-3 font-normal"
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-bold">
+              Booking end date
+              <input
+                name="bookingEndDate"
+                type="date"
+                defaultValue={toBookingEndDateInputValue(settings.bookingEndDate)}
+                className="rounded-xl border border-[#d8c7a3] px-4 py-3 font-normal"
               />
             </label>
             <p className="text-sm font-medium text-[#5f665f]">

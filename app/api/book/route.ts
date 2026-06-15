@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
+import { getMinimumBookingStartTime, MIN_BOOKING_LEAD_HOURS } from "@/lib/bookingRules";
 import { getBookingSettings, renderBookingTemplate } from "@/lib/bookingSettings";
 import { createCalendarEvent, isGoogleApiTimeoutError } from "@/lib/googleCalendar";
 import { prisma } from "@/lib/prisma";
@@ -58,7 +59,17 @@ export async function POST(request: Request) {
     }
 
     const endTime = new Date(startTime.getTime() + SLOT_MINUTES * 60_000);
+
+    if (startTime < getMinimumBookingStartTime()) {
+      return NextResponse.json({ error: `Bookings must be at least ${MIN_BOOKING_LEAD_HOURS} hours in the future.` }, { status: 400 });
+    }
+
     const settings = await getBookingSettings();
+
+    if (settings.bookingEndDate && startTime > settings.bookingEndDate) {
+      return NextResponse.json({ error: "Bookings are not available after the booking end date." }, { status: 400 });
+    }
+
     const templateValues = {
       customerName,
       customerEmail,

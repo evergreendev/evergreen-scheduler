@@ -387,9 +387,9 @@ export function BookingClient({ initialValues = {} }: { initialValues?: BookingF
             </button>
           </div>
         </div>
-        <p className="mt-3 text-sm leading-6 text-white/75">
+{/*        <p className="mt-3 text-sm leading-6 text-white/75">
           Dates are enabled only when at least one active writer and one active photographer are both free. Bookings must be at least {MIN_BOOKING_LEAD_HOURS} hours in the future.
-        </p>
+        </p>*/}
 
         <div className="mt-6 rounded-2xl bg-white/10 p-4">
           <div className="text-center text-lg font-black">

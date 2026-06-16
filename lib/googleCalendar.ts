@@ -13,13 +13,15 @@ export type MemberBusyBlocks = {
 };
 
 export type CalendarEventInput = {
-  assignedMembers: Pick<TeamMember, "name" | "email" | "googleRefreshToken" | "googleCalendarId">[];
+  assignedMembers: Pick<TeamMember, "name" | "email" | "secondaryEmail" | "googleRefreshToken" | "googleCalendarId">[];
+  organizer?: Pick<TeamMember, "googleRefreshToken" | "googleCalendarId"> | null;
   customer: {
     name: string;
     email: string;
   };
   title?: string;
   description?: string;
+  location?: string;
   startTime: Date;
   endTime: Date;
 };
@@ -31,6 +33,8 @@ const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.profile",
 ];
 const DEFAULT_GOOGLE_API_TIMEOUT_MS = 10_000;
+const BOOKING_EMAIL_REMINDER_MINUTES = 9 * 60;
+const BOOKING_FINAL_REMINDER_MINUTES = 30;
 
 function getGoogleApiTimeoutMs() {
   const configured = Number(process.env.GOOGLE_API_TIMEOUT_MS);
@@ -94,7 +98,7 @@ export async function getFreeBusy(
       if (!member.googleRefreshToken) {
         return {
           memberId: member.id,
-          busy: [{ start: timeMin, end: timeMax }],
+          busy: [],
         };
       }
 
@@ -130,31 +134,44 @@ export async function getFreeBusy(
 
 export async function createCalendarEvent({
   assignedMembers,
+  organizer: fallbackOrganizer,
   customer,
   title,
   description,
+  location,
   startTime,
   endTime,
 }: CalendarEventInput) {
-  const organizer = assignedMembers.find((member) => member.googleRefreshToken);
+  const organizer = assignedMembers.find((member) => member.googleRefreshToken) ?? fallbackOrganizer;
 
   if (!organizer?.googleRefreshToken) {
-    throw new Error("No assigned team member has a connected Google Calendar.");
+    throw new Error("No connected Google Calendar is available to send booking notifications.");
   }
 
   const auth = getOAuthClient(organizer.googleRefreshToken);
   const calendar = google.calendar({ version: "v3", auth });
+  const attendeeEmails = new Set<string>();
+  const addAttendee = (displayName: string, email?: string | null) => {
+    const normalizedEmail = email?.trim().toLowerCase();
+
+    if (!normalizedEmail || attendeeEmails.has(normalizedEmail)) {
+      return null;
+    }
+
+    attendeeEmails.add(normalizedEmail);
+    return {
+      displayName,
+      email: normalizedEmail,
+    };
+  };
 
   const attendees = [
-    ...assignedMembers.map((member) => ({
-      displayName: member.name,
-      email: member.email,
-    })),
-    {
-      displayName: customer.name,
-      email: customer.email,
-    },
-  ];
+    ...assignedMembers.flatMap((member) => [
+      addAttendee(member.name, member.email),
+      addAttendee(`${member.name} secondary`, member.secondaryEmail),
+    ]),
+    addAttendee(customer.name, customer.email),
+  ].filter((attendee): attendee is { displayName: string; email: string } => Boolean(attendee));
 
   const response = await calendar.events.insert({
     calendarId: organizer.googleCalendarId || "primary",
@@ -162,9 +179,27 @@ export async function createCalendarEvent({
     requestBody: {
       summary: title || `Booking with ${customer.name}`,
       description: description || "Created by Evergreen Scheduler.",
+      location,
       start: { dateTime: startTime.toISOString() },
       end: { dateTime: endTime.toISOString() },
       attendees,
+      reminders: {
+        useDefault: false,
+        overrides: [
+          {
+            method: "email",
+            minutes: BOOKING_EMAIL_REMINDER_MINUTES,
+          },
+          {
+            method: "popup",
+            minutes: BOOKING_FINAL_REMINDER_MINUTES,
+          },
+          {
+            method: "email",
+            minutes: BOOKING_FINAL_REMINDER_MINUTES,
+          },
+        ],
+      },
     },
   }, {
     timeout: getGoogleApiTimeoutMs(),

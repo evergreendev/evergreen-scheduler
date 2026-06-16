@@ -10,6 +10,7 @@ model TeamMember {
   id                 String    @id @default(cuid())
   name               String
   email              String    @unique
+  secondaryEmail     String?
   role               Role?
   active             Boolean   @default(true)
   sortOrder          Int       @default(0)

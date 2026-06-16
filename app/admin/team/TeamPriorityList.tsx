@@ -11,6 +11,7 @@ type PriorityMember = {
   role: Role;
   active: boolean;
   sortOrder: number;
+  hasGoogleCalendar: boolean;
 };
 
 type GroupedMembers = Record<Role, PriorityMember[]>;
@@ -93,7 +94,7 @@ export function TeamPriorityList({ members }: { members: PriorityMember[] }) {
         <div>
           <h2 className="text-2xl font-black">Scheduling priority</h2>
           <p className="mt-2 text-sm font-medium text-[#5f665f]">
-            Drag people higher in their role. The first available person in each role gets the calendar invite.
+            Drag people higher in their role. Email-only members can be assigned and receive the booking invite by email.
           </p>
         </div>
         {status ? <p className="text-sm font-bold text-[#4d7c59]">{status}</p> : null}
@@ -128,7 +129,8 @@ export function TeamPriorityList({ members }: { members: PriorityMember[] }) {
                     <span className="block truncate font-black text-[#1f2a24]">{member.name}</span>
                     <span className="block truncate text-sm font-medium text-[#5f665f]">
                       {member.email}
-                      {!member.active ? " · inactive" : ""}
+                      {!member.active ? " - inactive" : ""}
+                      {member.active && !member.hasGoogleCalendar ? " - email only" : ""}
                     </span>
                   </span>
                 </button>

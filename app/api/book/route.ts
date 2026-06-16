@@ -1,10 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getMinimumBookingStartTime, MIN_BOOKING_LEAD_HOURS } from "@/lib/bookingRules";
-import { getBookingSettings, renderBookingTemplate } from "@/lib/bookingSettings";
+import { getBookingSettings, renderBookingDetails, renderBookingTemplate } from "@/lib/bookingSettings";
 import { createCalendarEvent, isGoogleApiTimeoutError } from "@/lib/googleCalendar";
+import { isHubSpotConfigured, updateHubSpotCompanyProductionStatus } from "@/lib/hubspot";
 import { prisma } from "@/lib/prisma";
-import { selectMembersForSlot, serializableTransactionOptions, SLOT_MINUTES } from "@/lib/scheduling";
+import { getActiveNotificationOrganizer, selectMembersForSlot, serializableTransactionOptions, SLOT_MINUTES } from "@/lib/scheduling";
 
 type BookingRequest = {
   customerFirstName?: string;
@@ -15,6 +16,7 @@ type BookingRequest = {
   peopleCount?: number | string;
   interviewSubject?: string;
   notes?: string;
+  hubspotCompanyId?: string;
   startTime?: string;
 };
 
@@ -33,8 +35,13 @@ export async function POST(request: Request) {
     const peopleCount = Number(body.peopleCount);
     const interviewSubject = body.interviewSubject?.trim();
     const notes = body.notes?.trim() || null;
+    const hubspotCompanyId = body.hubspotCompanyId?.trim() || null;
     const startTime = body.startTime ? new Date(body.startTime) : null;
     const customerName = [customerFirstName, customerLastName].filter(Boolean).join(" ");
+
+    if (hubspotCompanyId && !isHubSpotConfigured()) {
+      return NextResponse.json({ error: "HubSpot is not configured." }, { status: 500 });
+    }
 
     if (
       !customerFirstName ||
@@ -84,12 +91,18 @@ export async function POST(request: Request) {
       endTime,
     };
     const eventTitle = renderBookingTemplate(settings.eventTitle, templateValues);
-    const eventDescription = renderBookingTemplate(settings.eventDescription, templateValues);
+    const eventDescription = [
+      renderBookingTemplate(settings.eventDescription, templateValues),
+      renderBookingDetails(templateValues),
+    ].filter(Boolean).join("\n\n");
 
     // Re-query Google FreeBusy at booking time so stale UI availability cannot create a booking.
-    const assigned = await selectMembersForSlot(startTime, endTime);
+    const [assigned, notificationOrganizer] = await Promise.all([
+      selectMembersForSlot(startTime, endTime),
+      getActiveNotificationOrganizer(),
+    ]);
 
-    if (!assigned) {
+    if (!assigned || !notificationOrganizer) {
       return NextResponse.json({ error: "That slot is no longer available." }, { status: 409 });
     }
 
@@ -129,9 +142,11 @@ export async function POST(request: Request) {
     try {
       const eventId = await createCalendarEvent({
         assignedMembers: [assigned.writer, assigned.photographer],
+        organizer: notificationOrganizer,
         customer: { name: customerName, email: customerEmail },
         title: eventTitle,
         description: eventDescription,
+        location: photoshootLocation,
         startTime,
         endTime,
       });
@@ -154,7 +169,18 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    return NextResponse.json({ bookingId: booking.id }, { status: 201 });
+    let hubspotUpdated = false;
+
+    if (hubspotCompanyId) {
+      try {
+        await updateHubSpotCompanyProductionStatus(hubspotCompanyId);
+        hubspotUpdated = true;
+      } catch (error) {
+        console.error("Unable to update HubSpot company production status.", error);
+      }
+    }
+
+    return NextResponse.json({ bookingId: booking.id, hubspotUpdated }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "BOOKING_CONFLICT") {
       return NextResponse.json({ error: "That slot is no longer available." }, { status: 409 });

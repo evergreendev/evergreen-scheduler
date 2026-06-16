@@ -42,6 +42,7 @@ export async function POST(request: Request) {
       data: {
         name: String(body.name),
         email: String(body.email).toLowerCase(),
+        secondaryEmail: body.secondaryEmail ? String(body.secondaryEmail).toLowerCase() : null,
         role: role as Role,
         active: body.active ?? true,
         sortOrder: await nextSortOrder(role as Role),

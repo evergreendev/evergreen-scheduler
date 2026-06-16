@@ -29,6 +29,7 @@ async function createTeamMember(formData: FormData) {
 
   const name = String(formData.get("name") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const secondaryEmail = String(formData.get("secondaryEmail") ?? "").trim().toLowerCase() || null;
   const role = String(formData.get("role") ?? "") as Role;
   const googleCalendarId = String(formData.get("googleCalendarId") ?? "primary").trim() || "primary";
 
@@ -37,7 +38,7 @@ async function createTeamMember(formData: FormData) {
   }
 
   await prisma.teamMember.create({
-    data: { name, email, role, googleCalendarId, sortOrder: await nextSortOrder(role) },
+    data: { name, email, secondaryEmail, role, googleCalendarId, sortOrder: await nextSortOrder(role) },
   });
 
   revalidatePath("/admin/team");
@@ -51,6 +52,7 @@ async function updateTeamMember(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const name = String(formData.get("name") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const secondaryEmail = String(formData.get("secondaryEmail") ?? "").trim().toLowerCase() || null;
   const role = String(formData.get("role") ?? "") as Role;
   const active = formData.get("active") === "on";
   const googleCalendarId = String(formData.get("googleCalendarId") ?? "primary").trim() || "primary";
@@ -67,7 +69,7 @@ async function updateTeamMember(formData: FormData) {
 
   await prisma.teamMember.update({
     where: { id },
-    data: { name, email, role, active, googleCalendarId, ...(nextOrder === undefined ? {} : { sortOrder: nextOrder }) },
+    data: { name, email, secondaryEmail, role, active, googleCalendarId, ...(nextOrder === undefined ? {} : { sortOrder: nextOrder }) },
   });
 
   revalidatePath("/admin/team");
@@ -124,7 +126,7 @@ export default async function TeamPage({
             <p className="text-sm uppercase tracking-[0.3em] text-[#b5d99c]">Admin</p>
             <h1 className="mt-3 text-4xl font-black tracking-tight md:text-5xl">Team calendar setup</h1>
             <p className="mt-3 max-w-2xl text-white/75">
-              Add team members, set required roles, and connect each person&apos;s Google Calendar.
+              Add team members, set required roles, and connect Google Calendar for anyone whose availability should be checked automatically.
             </p>
           </div>
           <Link href="/book" className="rounded-full bg-[#f7c948] px-5 py-3 font-bold text-[#12382b] transition hover:bg-[#ffd866]">
@@ -155,7 +157,7 @@ export default async function TeamPage({
               <input name="eventTitle" defaultValue={settings.eventTitle} className="rounded-xl border border-[#d8c7a3] px-4 py-3 font-normal" />
             </label>
             <label className="grid gap-2 text-sm font-bold">
-              Event description
+              Event description intro
               <textarea
                 name="eventDescription"
                 defaultValue={settings.eventDescription}
@@ -173,7 +175,7 @@ export default async function TeamPage({
               />
             </label>
             <p className="text-sm font-medium text-[#5f665f]">
-              Available placeholders: {"{customerName}"}, {"{customerFirstName}"}, {"{customerLastName}"}, {"{customerEmail}"}, {"{customerPhone}"}, {"{photoshootLocation}"}, {"{peopleCount}"}, {"{interviewSubject}"}, {"{notes}"}, {"{startTime}"}, {"{endTime}"}.
+              The full booking details are always added to the invite. Available intro placeholders: {"{customerName}"}, {"{customerFirstName}"}, {"{customerLastName}"}, {"{customerEmail}"}, {"{customerPhone}"}, {"{photoshootLocation}"}, {"{peopleCount}"}, {"{interviewSubject}"}, {"{notes}"}, {"{startTime}"}, {"{endTime}"}.
             </p>
             <button className="w-fit rounded-xl bg-[#12382b] px-5 py-3 font-bold text-white">Save event details</button>
           </form>
@@ -181,17 +183,21 @@ export default async function TeamPage({
 
         <section className="rounded-[1.5rem] bg-white p-6 shadow-lg">
           <h2 className="text-2xl font-black">Add team member</h2>
-          <form action={createTeamMember} className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_180px_1fr_auto]">
+          <form action={createTeamMember} className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_1fr_180px_1fr_auto]">
             <input name="name" required placeholder="Name" className="rounded-xl border border-[#d8c7a3] px-4 py-3" />
-            <input name="email" required type="email" placeholder="Email" className="rounded-xl border border-[#d8c7a3] px-4 py-3" />
+            <input name="email" required type="email" placeholder="Primary email" className="rounded-xl border border-[#d8c7a3] px-4 py-3" />
+            <input name="secondaryEmail" type="email" placeholder="Secondary email, optional" className="rounded-xl border border-[#d8c7a3] px-4 py-3" />
             <select name="role" defaultValue={Role.WRITER} className="rounded-xl border border-[#d8c7a3] px-4 py-3">
               {Object.values(Role).map((role) => (
                 <option key={role} value={role}>{role}</option>
               ))}
             </select>
-            <input name="googleCalendarId" placeholder="Calendar ID, defaults to primary" className="rounded-xl border border-[#d8c7a3] px-4 py-3" />
+            <input name="googleCalendarId" placeholder="Google Calendar ID, optional" className="rounded-xl border border-[#d8c7a3] px-4 py-3" />
             <button className="rounded-xl bg-[#12382b] px-5 py-3 font-bold text-white">Add</button>
           </form>
+          <p className="mt-3 text-sm font-medium text-[#5f665f]">
+            Nongoogle members only need a name and email. They can be assigned bookings and receive email invitations, but their outside calendar availability is not checked.
+          </p>
         </section>
 
         <TeamPriorityList
@@ -205,22 +211,24 @@ export default async function TeamPage({
               role: member.role as Role,
               active: member.active,
               sortOrder: member.sortOrder,
+              hasGoogleCalendar: Boolean(member.googleRefreshToken),
             }))}
         />
 
         <section className="grid gap-4">
           {members.map((member) => (
-            <form key={member.id} action={updateTeamMember} className="grid gap-3 rounded-[1.5rem] bg-white p-5 shadow-md lg:grid-cols-[1fr_1fr_170px_1fr_110px_auto] lg:items-center">
+            <form key={member.id} action={updateTeamMember} className="grid gap-3 rounded-[1.5rem] bg-white p-5 shadow-md lg:grid-cols-[1fr_1fr_1fr_170px_1fr_110px_auto] lg:items-center">
               <input type="hidden" name="id" value={member.id} />
               <input name="name" defaultValue={member.name} className="rounded-xl border border-[#d8c7a3] px-4 py-3" />
-              <input name="email" type="email" defaultValue={member.email} className="rounded-xl border border-[#d8c7a3] px-4 py-3" />
+              <input name="email" type="email" aria-label="Primary email" defaultValue={member.email} className="rounded-xl border border-[#d8c7a3] px-4 py-3" />
+              <input name="secondaryEmail" type="email" aria-label="Secondary email" defaultValue={member.secondaryEmail ?? ""} placeholder="Secondary email" className="rounded-xl border border-[#d8c7a3] px-4 py-3" />
               <select name="role" defaultValue={member.role ?? ""} className="rounded-xl border border-[#d8c7a3] px-4 py-3">
                 <option value="">Assign role</option>
                 {Object.values(Role).map((role) => (
                   <option key={role} value={role}>{role}</option>
                 ))}
               </select>
-              <input name="googleCalendarId" defaultValue={member.googleCalendarId} className="rounded-xl border border-[#d8c7a3] px-4 py-3" />
+              <input name="googleCalendarId" aria-label="Google Calendar ID" defaultValue={member.googleCalendarId} className="rounded-xl border border-[#d8c7a3] px-4 py-3" />
               <label className="flex items-center gap-2 font-semibold">
                 <input name="active" type="checkbox" defaultChecked={member.active} /> Active
               </label>

@@ -6,6 +6,20 @@ const SETTINGS_ID = "default";
 const DEFAULT_EVENT_TITLE = "Booking with {customerName}";
 const DEFAULT_EVENT_DESCRIPTION = "Created by Evergreen Scheduler.";
 
+type BookingTemplateValues = {
+  customerName: string;
+  customerEmail: string;
+  customerFirstName?: string;
+  customerLastName?: string;
+  customerPhone?: string;
+  photoshootLocation?: string;
+  peopleCount?: number;
+  interviewSubject?: string;
+  notes?: string | null;
+  startTime: Date;
+  endTime: Date;
+};
+
 export async function getBookingSettings() {
   return prisma.schedulerSettings.upsert({
     where: { id: SETTINGS_ID },
@@ -60,30 +74,31 @@ export function toBookingEndDateInputValue(date: Date | null) {
   return `${year}-${month}-${day}`;
 }
 
-export function renderBookingTemplate(
-  template: string,
-  values: {
-    customerName: string;
-    customerEmail: string;
-    customerFirstName?: string;
-    customerLastName?: string;
-    customerPhone?: string;
-    photoshootLocation?: string;
-    peopleCount?: number;
-    interviewSubject?: string;
-    notes?: string | null;
-    startTime: Date;
-    endTime: Date;
-  },
-) {
-  const startsAt = new Intl.DateTimeFormat("en-US", {
+function formatBookingDateTime(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(values.startTime);
-  const endsAt = new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(values.endTime);
+  }).format(date);
+}
+
+export function renderBookingDetails(values: BookingTemplateValues) {
+  return [
+    "Booking details",
+    `Client: ${values.customerName}`,
+    `Client email: ${values.customerEmail}`,
+    `Client phone: ${values.customerPhone ?? ""}`,
+    `Photoshoot location: ${values.photoshootLocation ?? ""}`,
+    `People count: ${values.peopleCount ?? ""}`,
+    `Interview subject: ${values.interviewSubject ?? ""}`,
+    `Start time: ${formatBookingDateTime(values.startTime)}`,
+    `End time: ${formatBookingDateTime(values.endTime)}`,
+    `Notes: ${values.notes?.trim() || "None"}`,
+  ].join("\n");
+}
+
+export function renderBookingTemplate(template: string, values: BookingTemplateValues) {
+  const startsAt = formatBookingDateTime(values.startTime);
+  const endsAt = formatBookingDateTime(values.endTime);
 
   return template
     .replaceAll("{customerName}", values.customerName)

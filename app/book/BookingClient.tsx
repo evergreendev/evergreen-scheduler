@@ -8,6 +8,97 @@ type Slot = {
   end: string;
 };
 
+type ConfirmedBooking = {
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  photoshootLocation: string;
+  peopleCount: string;
+  interviewSubject: string;
+  notes: string;
+  startTime: string;
+  endTime: string;
+  calendarHref: string;
+};
+
+export type BookingFormInitialValues = Partial<{
+  customerFirstName: string;
+  customerLastName: string;
+  customerEmail: string;
+  customerPhone: string;
+  photoshootLocation: string;
+  peopleCount: string;
+  interviewSubject: string;
+  notes: string;
+  hubspotCompanyId: string;
+}>;
+
+const BOOKING_EMAIL_REMINDER_HOURS = 7;
+const BOOKING_FINAL_REMINDER_MINUTES = 30;
+
+function escapeIcsText(value: string) {
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll(";", "\\;")
+    .replaceAll(",", "\\,")
+    .replaceAll(/\r?\n/g, "\\n");
+}
+
+function toIcsDate(date: Date) {
+  return date.toISOString().replaceAll("-", "").replaceAll(":", "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function buildCalendarHref(details: Omit<ConfirmedBooking, "calendarHref">) {
+  const description = [
+    `Customer: ${details.customerName}`,
+    `Customer email: ${details.customerEmail}`,
+    `Customer phone: ${details.customerPhone}`,
+    `Photoshoot location: ${details.photoshootLocation}`,
+    `People count: ${details.peopleCount}`,
+    `Interview subject: ${details.interviewSubject}`,
+    `Notes: ${details.notes || "None"}`,
+  ].join("\n");
+
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Evergreen Scheduler//Booking//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${crypto.randomUUID()}@evergreen-scheduler`,
+    `DTSTAMP:${toIcsDate(new Date())}`,
+    `DTSTART:${toIcsDate(new Date(details.startTime))}`,
+    `DTEND:${toIcsDate(new Date(details.endTime))}`,
+    `SUMMARY:${escapeIcsText(`Interview and photoshoot with ${details.customerName}`)}`,
+    `LOCATION:${escapeIcsText(details.photoshootLocation)}`,
+    `DESCRIPTION:${escapeIcsText(description)}`,
+    "BEGIN:VALARM",
+    `TRIGGER:-PT${BOOKING_EMAIL_REMINDER_HOURS}H`,
+    "ACTION:EMAIL",
+    `ATTENDEE:mailto:${details.customerEmail}`,
+    `SUMMARY:${escapeIcsText(`Reminder: Interview and photoshoot with ${details.customerName}`)}`,
+    `DESCRIPTION:${escapeIcsText(description)}`,
+    "END:VALARM",
+    "BEGIN:VALARM",
+    `TRIGGER:-PT${BOOKING_FINAL_REMINDER_MINUTES}M`,
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${escapeIcsText(`Interview and photoshoot with ${details.customerName} starts in 30 minutes.`)}`,
+    "END:VALARM",
+    "BEGIN:VALARM",
+    `TRIGGER:-PT${BOOKING_FINAL_REMINDER_MINUTES}M`,
+    "ACTION:EMAIL",
+    `ATTENDEE:mailto:${details.customerEmail}`,
+    `SUMMARY:${escapeIcsText(`Reminder: Interview and photoshoot with ${details.customerName}`)}`,
+    `DESCRIPTION:${escapeIcsText(description)}`,
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+
+  return `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`;
+}
+
 function toLocalDateKey(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -66,7 +157,7 @@ function getVisibleRange(month: Date, minimumBookingStart: Date) {
   };
 }
 
-export function BookingClient() {
+export function BookingClient({ initialValues = {} }: { initialValues?: BookingFormInitialValues }) {
   const today = useMemo(() => new Date(), []);
   const minimumBookingStart = useMemo(() => getMinimumBookingStartTime(today), [today]);
 
@@ -74,16 +165,18 @@ export function BookingClient() {
   const [visibleMonth, setVisibleMonth] = useState(startOfMonth(today));
   const [slots, setSlots] = useState<Slot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<string>("");
-  const [customerFirstName, setCustomerFirstName] = useState("");
-  const [customerLastName, setCustomerLastName] = useState("");
-  const [customerEmail, setCustomerEmail] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [photoshootLocation, setPhotoshootLocation] = useState("");
-  const [peopleCount, setPeopleCount] = useState("");
-  const [interviewSubject, setInterviewSubject] = useState("");
-  const [notes, setNotes] = useState("");
+  const [customerFirstName, setCustomerFirstName] = useState(initialValues.customerFirstName ?? "");
+  const [customerLastName, setCustomerLastName] = useState(initialValues.customerLastName ?? "");
+  const [customerEmail, setCustomerEmail] = useState(initialValues.customerEmail ?? "");
+  const [customerPhone, setCustomerPhone] = useState(initialValues.customerPhone ?? "");
+  const [photoshootLocation, setPhotoshootLocation] = useState(initialValues.photoshootLocation ?? "");
+  const [peopleCount, setPeopleCount] = useState(initialValues.peopleCount ?? "");
+  const [interviewSubject, setInterviewSubject] = useState(initialValues.interviewSubject ?? "");
+  const [notes, setNotes] = useState(initialValues.notes ?? "");
+  const [hubspotCompanyId] = useState(initialValues.hubspotCompanyId ?? "");
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string | null>(null);
+  const [confirmedBooking, setConfirmedBooking] = useState<ConfirmedBooking | null>(null);
 
   useEffect(() => {
     let canceled = false;
@@ -112,15 +205,6 @@ export function BookingClient() {
       canceled = true;
     };
   }, [minimumBookingStart, visibleMonth]);
-
-  async function reloadAvailability() {
-    const range = getVisibleRange(visibleMonth, minimumBookingStart);
-    const nextSlots = await fetchAvailability(range.start, range.end);
-    setSlots(nextSlots);
-    setSelectedDate(nextSlots[0] ? toLocalDateKey(new Date(nextSlots[0].start)) : "");
-    setSelectedSlot("");
-    setStatus(nextSlots.length ? null : "No matching writer + photographer slots were found.");
-  }
 
   const slotsByDate = useMemo(() => {
     return slots.reduce<Map<string, Slot[]>>((grouped, slot) => {
@@ -163,6 +247,7 @@ export function BookingClient() {
           peopleCount,
           interviewSubject,
           notes,
+          hubspotCompanyId,
           startTime: selectedSlot,
         }),
       });
@@ -172,6 +257,24 @@ export function BookingClient() {
         throw new Error(data.error ?? "Unable to create booking.");
       }
 
+      const startTime = new Date(selectedSlot);
+      const endTime = new Date(startTime.getTime() + 45 * 60_000);
+      const confirmationDetails = {
+        customerName: [customerFirstName, customerLastName].filter(Boolean).join(" "),
+        customerEmail,
+        customerPhone,
+        photoshootLocation,
+        peopleCount,
+        interviewSubject,
+        notes,
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+      };
+
+      setConfirmedBooking({
+        ...confirmationDetails,
+        calendarHref: buildCalendarHref(confirmationDetails),
+      });
       setCustomerFirstName("");
       setCustomerLastName("");
       setCustomerEmail("");
@@ -180,13 +283,76 @@ export function BookingClient() {
       setPeopleCount("");
       setInterviewSubject("");
       setNotes("");
-      await reloadAvailability();
-      setStatus("Booking confirmed. Calendar invitations have been sent.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to create booking.");
     } finally {
       setLoading(false);
     }
+  }
+
+  if (confirmedBooking) {
+    const startLabel = new Intl.DateTimeFormat(undefined, {
+      dateStyle: "full",
+      timeStyle: "short",
+    }).format(new Date(confirmedBooking.startTime));
+    const endLabel = new Intl.DateTimeFormat(undefined, {
+      timeStyle: "short",
+    }).format(new Date(confirmedBooking.endTime));
+
+    return (
+      <section className="rounded-[2rem] bg-white p-8 shadow-xl">
+        <div className="max-w-3xl">
+          <p className="text-sm font-black uppercase tracking-[0.3em] text-[#4d7c59]">Booking confirmed</p>
+          <h2 className="mt-3 text-4xl font-black tracking-tight text-[#1f2a24]">Your interview and photoshoot are scheduled.</h2>
+          <p className="mt-4 text-lg leading-8 text-[#5f665f]">
+            The event details have been sent to {confirmedBooking.customerEmail}. That email includes the interview and photoshoot
+            information submitted with the booking.
+          </p>
+
+          <div className="mt-6 grid gap-3 rounded-[1.5rem] bg-[#f4f0e8] p-5 text-sm font-semibold text-[#1f2a24] sm:grid-cols-2">
+            <div>
+              <span className="block text-[#5f665f]">Date and time</span>
+              <span className="mt-1 block text-base font-black">{startLabel} - {endLabel}</span>
+            </div>
+            <div>
+              <span className="block text-[#5f665f]">Photoshoot location</span>
+              <span className="mt-1 block text-base font-black">{confirmedBooking.photoshootLocation}</span>
+            </div>
+            <div>
+              <span className="block text-[#5f665f]">People in shoot</span>
+              <span className="mt-1 block text-base font-black">{confirmedBooking.peopleCount}</span>
+            </div>
+            <div>
+              <span className="block text-[#5f665f]">Interview subject</span>
+              <span className="mt-1 block text-base font-black">{confirmedBooking.interviewSubject}</span>
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <a
+              href={confirmedBooking.calendarHref}
+              download="evergreen-booking.ics"
+              className="rounded-xl bg-[#1f2a24] px-5 py-3 font-black text-white"
+            >
+              Download calendar file
+            </a>
+{/*            <button
+              type="button"
+              onClick={() => {
+                setConfirmedBooking(null);
+                void reloadAvailability();
+              }}
+              className="rounded-xl border border-[#12382b] px-5 py-3 font-black text-[#12382b]"
+            >
+              Book another time
+            </button>*/}
+          </div>
+          <p className="mt-3 text-sm font-medium text-[#5f665f]">
+            Use the download for Outlook, Apple Calendar, iCal, or any calendar app that imports .ics files.
+          </p>
+        </div>
+      </section>
+    );
   }
 
   return (

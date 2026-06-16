@@ -7,7 +7,7 @@ export const REQUIRED_ROLES = [Role.WRITER, Role.PHOTOGRAPHER] as const;
 
 type SchedulableMember = Pick<
   TeamMember,
-  "id" | "name" | "email" | "role" | "sortOrder" | "googleRefreshToken" | "googleCalendarId" | "lastBookedAt"
+  "id" | "name" | "email" | "secondaryEmail" | "role" | "sortOrder" | "googleRefreshToken" | "googleCalendarId" | "lastBookedAt"
 >;
 
 export type PublicSlot = {
@@ -100,6 +100,15 @@ export async function getActiveRequiredMembers() {
     where: {
       active: true,
       role: { in: [...REQUIRED_ROLES] },
+    },
+    orderBy: [{ role: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
+  });
+}
+
+export async function getActiveNotificationOrganizer() {
+  return prisma.teamMember.findFirst({
+    where: {
+      active: true,
       googleRefreshToken: { not: null },
     },
     orderBy: [{ role: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
@@ -107,10 +116,14 @@ export async function getActiveRequiredMembers() {
 }
 
 export async function getAvailableSlots(rangeStart: Date, rangeEnd: Date): Promise<PublicSlot[]> {
-  const members = await getActiveRequiredMembers();
+  const [members, organizer] = await Promise.all([getActiveRequiredMembers(), getActiveNotificationOrganizer()]);
   const candidates = generateCandidateSlots(rangeStart, rangeEnd);
 
   if (!members.some((member) => member.role === Role.WRITER) || !members.some((member) => member.role === Role.PHOTOGRAPHER)) {
+    return [];
+  }
+
+  if (!organizer) {
     return [];
   }
 

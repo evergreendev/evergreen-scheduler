@@ -129,12 +129,17 @@ export default async function TeamPage({
               Add team members, set required roles, and connect Google Calendar for anyone whose availability should be checked automatically.
             </p>
           </div>
-          <Link href="/book" className="rounded-full bg-[#f7c948] px-5 py-3 font-bold text-[#12382b] transition hover:bg-[#ffd866]">
-            View booking page
-          </Link>
-          <Link href="/google-connect" className="rounded-full border border-white/30 px-5 py-3 font-bold text-white transition hover:bg-white/10">
-            Team Google link
-          </Link>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/admin/bookings" className="rounded-full border border-white/30 px-5 py-3 font-bold text-white transition hover:bg-white/10">
+              View bookings
+            </Link>
+            <Link href="/book" className="rounded-full bg-[#f7c948] px-5 py-3 font-bold text-[#12382b] transition hover:bg-[#ffd866]">
+              View booking page
+            </Link>
+            <Link href="/google-connect" className="rounded-full border border-white/30 px-5 py-3 font-bold text-white transition hover:bg-white/10">
+              Team Google link
+            </Link>
+          </div>
         </header>
 
         {params.google ? (

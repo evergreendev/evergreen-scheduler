@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { getMinimumBookingStartTime, MIN_BOOKING_LEAD_HOURS } from "@/lib/bookingRules";
+import { getMinimumBookingStartTime } from "@/lib/bookingRules";
 
 type Slot = {
   start: string;

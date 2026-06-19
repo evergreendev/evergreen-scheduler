@@ -26,6 +26,8 @@ http://localhost:3000/api/auth/callback/google
 
 Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`. Keep `NEXT_PUBLIC_APP_URL` and `GOOGLE_REDIRECT_URI` on the same origin as the URL you use in the browser. For example, if the app runs on `http://localhost:3001`, the authorized redirect URI must be `http://localhost:3001/api/auth/callback/google`.
 
+For production OAuth scope justifications and Google Cloud verification steps, see [GOOGLE_VERIFICATION.md](./GOOGLE_VERIFICATION.md).
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

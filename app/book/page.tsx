@@ -54,9 +54,6 @@ export default async function BookPage({
             <p className="text-sm font-black uppercase tracking-[0.3em] text-[#4d7c59]">Evergreen Scheduler</p>
             <h1 className="mt-3 max-w-3xl text-5xl font-black tracking-tight md:text-7xl">{settings.eventTitle}</h1>
           </div>
-          <Link href="/admin/team" className="rounded-full border border-[#12382b] px-5 py-3 font-bold text-[#12382b]">
-            Admin team
-          </Link>
         </header>
         <BookingClient initialValues={initialValues} />
       </div>

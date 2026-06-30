@@ -1,5 +1,7 @@
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
+import { buildPublicRescheduleUrl } from "@/lib/bookingReschedule";
 import { getMinimumBookingStartTime, MIN_BOOKING_LEAD_HOURS } from "@/lib/bookingRules";
 import { getBookingSettings, renderBookingDetails, renderBookingTemplate } from "@/lib/bookingSettings";
 import { createCalendarEvent, isGoogleApiTimeoutError } from "@/lib/googleCalendar";
@@ -38,6 +40,7 @@ export async function POST(request: Request) {
     const hubspotCompanyId = body.hubspotCompanyId?.trim() || null;
     const startTime = body.startTime ? new Date(body.startTime) : null;
     const customerName = [customerFirstName, customerLastName].filter(Boolean).join(" ");
+    const rescheduleToken = randomUUID();
 
     if (hubspotCompanyId && !isHubSpotConfigured()) {
       return NextResponse.json({ error: "HubSpot is not configured." }, { status: 500 });
@@ -91,9 +94,11 @@ export async function POST(request: Request) {
       endTime,
     };
     const eventTitle = renderBookingTemplate(settings.eventTitle, templateValues);
+    const rescheduleUrl = buildPublicRescheduleUrl(rescheduleToken);
     const eventDescription = [
       renderBookingTemplate(settings.eventDescription, templateValues),
       renderBookingDetails(templateValues),
+      `Reschedule this booking: ${rescheduleUrl}`,
     ].filter(Boolean).join("\n\n");
 
     // Re-query Google FreeBusy at booking time so stale UI availability cannot create a booking.
@@ -135,6 +140,7 @@ export async function POST(request: Request) {
           endTime,
           writerId: assigned.writer.id,
           photographerId: assigned.photographer.id,
+          rescheduleToken,
         },
       });
     }, serializableTransactionOptions);
@@ -146,6 +152,7 @@ export async function POST(request: Request) {
         customer: { name: customerName, email: customerEmail },
         title: eventTitle,
         description: eventDescription,
+        rescheduleUrl,
         location: photoshootLocation,
         startTime,
         endTime,

@@ -21,6 +21,7 @@ export type CalendarEventInput = {
   };
   title?: string;
   description?: string;
+  rescheduleUrl?: string;
   location?: string;
   startTime: Date;
   endTime: Date;
@@ -138,6 +139,7 @@ export async function createCalendarEvent({
   customer,
   title,
   description,
+  rescheduleUrl,
   location,
   startTime,
   endTime,
@@ -179,6 +181,7 @@ export async function createCalendarEvent({
     requestBody: {
       summary: title || `Booking with ${customer.name}`,
       description: description || "Created by Evergreen Scheduler.",
+      source: rescheduleUrl ? { title: "Reschedule booking", url: rescheduleUrl } : undefined,
       location,
       start: { dateTime: startTime.toISOString() },
       end: { dateTime: endTime.toISOString() },
@@ -206,4 +209,62 @@ export async function createCalendarEvent({
   });
 
   return response.data.id ?? null;
+}
+
+export async function deleteCalendarEvent(
+  eventId: string,
+  calendarOwners: (Pick<TeamMember, "googleRefreshToken" | "googleCalendarId"> | null | undefined)[],
+) {
+  const seenCalendars = new Set<string>();
+  const candidates = calendarOwners.filter((owner): owner is Pick<TeamMember, "googleRefreshToken" | "googleCalendarId"> =>
+    Boolean(owner?.googleRefreshToken),
+  );
+  let lastError: unknown = null;
+  let triedCalendar = false;
+
+  if (candidates.length === 0) {
+    throw new Error("No connected Google Calendar is available to cancel the booking event.");
+  }
+
+  for (const owner of candidates) {
+    const calendarId = owner.googleCalendarId || "primary";
+    const key = `${owner.googleRefreshToken}:${calendarId}`;
+
+    if (seenCalendars.has(key)) {
+      continue;
+    }
+
+    seenCalendars.add(key);
+    triedCalendar = true;
+
+    try {
+      const auth = getOAuthClient(owner.googleRefreshToken);
+      const calendar = google.calendar({ version: "v3", auth });
+
+      await calendar.events.delete({
+        calendarId,
+        eventId,
+        sendUpdates: "all",
+      }, {
+        timeout: getGoogleApiTimeoutMs(),
+      });
+
+      return true;
+    } catch (error) {
+      const status = typeof error === "object" && error && "status" in error ? Number(error.status) : null;
+      const code = typeof error === "object" && error && "code" in error ? Number(error.code) : null;
+
+      if (status === 404 || code === 404 || status === 410 || code === 410) {
+        continue;
+      }
+
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  return triedCalendar;
 }

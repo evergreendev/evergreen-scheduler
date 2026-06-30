@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { BookingClient, type BookingFormInitialValues } from "./BookingClient";
 import { getBookingSettings } from "@/lib/bookingSettings";
 

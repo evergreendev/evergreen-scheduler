@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireAdminPage } from "@/lib/adminAuth";
+import { buildBookingPrefillPath, cancelBookingGoogleEvent } from "@/lib/bookingReschedule";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +20,44 @@ function formatCreatedDate(date: Date) {
   }).format(date);
 }
 
+async function rescheduleBooking(formData: FormData) {
+  "use server";
+
+  await requireAdminPage();
+
+  const bookingId = String(formData.get("bookingId") ?? "");
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      writer: {
+        select: {
+          googleRefreshToken: true,
+          googleCalendarId: true,
+        },
+      },
+      photographer: {
+        select: {
+          googleRefreshToken: true,
+          googleCalendarId: true,
+        },
+      },
+    },
+  });
+
+  if (!booking) {
+    redirect("/admin/bookings");
+  }
+
+  await cancelBookingGoogleEvent(booking);
+  await prisma.booking.update({
+    where: { id: booking.id },
+    data: { googleEventId: null },
+  });
+
+  revalidatePath("/admin/bookings");
+  redirect(buildBookingPrefillPath(booking));
+}
+
 export default async function AdminBookingsPage() {
   await requireAdminPage();
 
@@ -28,6 +69,8 @@ export default async function AdminBookingsPage() {
           name: true,
           email: true,
           secondaryEmail: true,
+          googleRefreshToken: true,
+          googleCalendarId: true,
         },
       },
       photographer: {
@@ -35,6 +78,8 @@ export default async function AdminBookingsPage() {
           name: true,
           email: true,
           secondaryEmail: true,
+          googleRefreshToken: true,
+          googleCalendarId: true,
         },
       },
     },
@@ -74,9 +119,17 @@ export default async function AdminBookingsPage() {
                     Booked {formatCreatedDate(booking.createdAt)}
                   </p>
                 </div>
-                <span className="w-fit rounded-full bg-[#f4f0e8] px-4 py-2 text-sm font-black text-[#12382b]">
-                  {booking.googleEventId ? "Calendar event sent" : "No calendar event"}
-                </span>
+                <div className="flex flex-wrap gap-2 md:justify-end">
+                  <form action={rescheduleBooking}>
+                    <input type="hidden" name="bookingId" value={booking.id} />
+                    <button className="w-fit rounded-full bg-[#12382b] px-4 py-2 text-sm font-black text-white transition hover:bg-[#1f4b3b]">
+                      Reschedule
+                    </button>
+                  </form>
+                  <span className="w-fit rounded-full bg-[#f4f0e8] px-4 py-2 text-sm font-black text-[#12382b]">
+                    {booking.googleEventId ? "Calendar event sent" : "No calendar event"}
+                  </span>
+                </div>
               </div>
 
               <div className="mt-5 grid gap-4 text-sm md:grid-cols-2 xl:grid-cols-3">

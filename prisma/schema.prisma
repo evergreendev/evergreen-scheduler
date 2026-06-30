@@ -43,6 +43,7 @@ model Booking {
   writerId            String?
   photographerId      String?
   googleEventId       String?
+  rescheduleToken     String?  @unique
   createdAt           DateTime @default(now())
 
   writer       TeamMember? @relation("WriterBookings", fields: [writerId], references: [id], onDelete: SetNull)

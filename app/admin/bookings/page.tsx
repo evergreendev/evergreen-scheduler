@@ -1,8 +1,8 @@
+import { randomUUID } from "crypto";
 import Link from "next/link";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdminPage } from "@/lib/adminAuth";
-import { buildBookingPrefillPath, cancelBookingGoogleEvent } from "@/lib/bookingReschedule";
+import { buildBookingPrefillPath } from "@/lib/bookingReschedule";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -48,14 +48,14 @@ async function rescheduleBooking(formData: FormData) {
     redirect("/admin/bookings");
   }
 
-  await cancelBookingGoogleEvent(booking);
-  await prisma.booking.update({
-    where: { id: booking.id },
-    data: { googleEventId: null },
-  });
+  const bookingWithRescheduleToken = booking.rescheduleToken
+    ? booking
+    : await prisma.booking.update({
+        where: { id: booking.id },
+        data: { rescheduleToken: randomUUID() },
+      });
 
-  revalidatePath("/admin/bookings");
-  redirect(buildBookingPrefillPath(booking));
+  redirect(buildBookingPrefillPath(bookingWithRescheduleToken));
 }
 
 export default async function AdminBookingsPage() {

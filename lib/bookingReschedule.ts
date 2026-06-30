@@ -3,6 +3,7 @@ import "server-only";
 import type { Booking, TeamMember } from "@prisma/client";
 import { getBaseUrl } from "@/lib/env";
 import { deleteCalendarEvent } from "@/lib/googleCalendar";
+import { prisma } from "@/lib/prisma";
 import { getActiveNotificationOrganizer } from "@/lib/scheduling";
 
 type BookingPrefillFields = Pick<
@@ -15,6 +16,7 @@ type BookingPrefillFields = Pick<
   | "peopleCount"
   | "interviewSubject"
   | "notes"
+  | "rescheduleToken"
 >;
 
 type CalendarOwner = Pick<TeamMember, "googleRefreshToken" | "googleCalendarId"> | null | undefined;
@@ -34,6 +36,10 @@ export function buildBookingPrefillPath(booking: BookingPrefillFields) {
     params.set("notes", booking.notes);
   }
 
+  if (booking.rescheduleToken) {
+    params.set("rescheduleToken", booking.rescheduleToken);
+  }
+
   return `/book?${params.toString()}`;
 }
 
@@ -50,8 +56,25 @@ export async function cancelBookingGoogleEvent(booking: {
     return false;
   }
 
-  const fallbackOrganizer = await getActiveNotificationOrganizer();
-  await deleteCalendarEvent(booking.googleEventId, [booking.writer, booking.photographer, fallbackOrganizer]);
+  const [fallbackOrganizer, connectedCalendarOwners] = await Promise.all([
+    getActiveNotificationOrganizer(),
+    prisma.teamMember.findMany({
+      where: {
+        googleRefreshToken: { not: null },
+      },
+      select: {
+        googleRefreshToken: true,
+        googleCalendarId: true,
+      },
+    }),
+  ]);
+
+  await deleteCalendarEvent(booking.googleEventId, [
+    booking.writer,
+    booking.photographer,
+    fallbackOrganizer,
+    ...connectedCalendarOwners,
+  ]);
 
   return true;
 }

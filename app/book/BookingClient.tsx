@@ -30,6 +30,7 @@ export type BookingFormInitialValues = Partial<{
   peopleCount: string;
   interviewSubject: string;
   notes: string;
+  rescheduleToken: string;
   hubspotCompanyId: string;
 }>;
 
@@ -173,6 +174,7 @@ export function BookingClient({ initialValues = {} }: { initialValues?: BookingF
   const [peopleCount, setPeopleCount] = useState(initialValues.peopleCount ?? "");
   const [interviewSubject, setInterviewSubject] = useState(initialValues.interviewSubject ?? "");
   const [notes, setNotes] = useState(initialValues.notes ?? "");
+  const [rescheduleToken] = useState(initialValues.rescheduleToken ?? "");
   const [hubspotCompanyId] = useState(initialValues.hubspotCompanyId ?? "");
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string | null>(null);
@@ -247,6 +249,7 @@ export function BookingClient({ initialValues = {} }: { initialValues?: BookingF
           peopleCount,
           interviewSubject,
           notes,
+          rescheduleToken,
           hubspotCompanyId,
           startTime: selectedSlot,
         }),

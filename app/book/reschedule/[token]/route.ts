@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { buildBookingPrefillPath, cancelBookingGoogleEvent } from "@/lib/bookingReschedule";
+import { buildBookingPrefillPath } from "@/lib/bookingReschedule";
 import { getBaseUrl } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 
@@ -29,12 +29,6 @@ export async function GET(
   if (!booking) {
     return NextResponse.redirect(`${getBaseUrl()}/book`);
   }
-
-  await cancelBookingGoogleEvent(booking);
-  await prisma.booking.update({
-    where: { id: booking.id },
-    data: { googleEventId: null },
-  });
 
   return NextResponse.redirect(`${getBaseUrl()}${buildBookingPrefillPath(booking)}`);
 }

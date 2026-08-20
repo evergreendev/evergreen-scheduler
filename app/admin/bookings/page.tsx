@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireAdminPage } from "@/lib/adminAuth";
 import { buildBookingPrefillPath } from "@/lib/bookingReschedule";
+import { BookingTimeUpdateError, updateBookingTime } from "@/lib/bookingTimeUpdate";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,30 @@ function formatCreatedDate(date: Date) {
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
   }).format(date);
+}
+
+function toDateTimeInputValue(date: Date) {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return offsetDate.toISOString().slice(0, 16);
+}
+
+async function updateTime(formData: FormData) {
+  "use server";
+
+  await requireAdminPage();
+
+  const bookingId = String(formData.get("bookingId") ?? "");
+  const submittedStartTime = String(formData.get("startTime") ?? "");
+
+  try {
+    await updateBookingTime(bookingId, new Date(submittedStartTime));
+  } catch (error) {
+    const message = error instanceof BookingTimeUpdateError ? error.message : "Unable to update the booking time.";
+    console.error("Unable to update booking time.", error);
+    redirect(`/admin/bookings?timeError=${encodeURIComponent(message)}`);
+  }
+
+  redirect("/admin/bookings?timeUpdated=1");
 }
 
 async function rescheduleBooking(formData: FormData) {
@@ -58,8 +83,13 @@ async function rescheduleBooking(formData: FormData) {
   redirect(buildBookingPrefillPath(bookingWithRescheduleToken));
 }
 
-export default async function AdminBookingsPage() {
+export default async function AdminBookingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ timeUpdated?: string; timeError?: string }>;
+}) {
   await requireAdminPage();
+  const status = await searchParams;
 
   const bookings = await prisma.booking.findMany({
     orderBy: [{ startTime: "desc" }, { createdAt: "desc" }],
@@ -106,6 +136,13 @@ export default async function AdminBookingsPage() {
           </div>
         </header>
 
+        {status.timeUpdated ? (
+          <p className="rounded-2xl bg-[#dcefd4] px-5 py-4 font-bold text-[#12382b]">Booking time updated and replacement invitations sent.</p>
+        ) : null}
+        {status.timeError ? (
+          <p className="rounded-2xl bg-[#fee2e2] px-5 py-4 font-bold text-[#991b1b]">{status.timeError}</p>
+        ) : null}
+
         <section className="grid gap-4">
           {bookings.map((booking) => (
             <article key={booking.id} className="rounded-[1.5rem] bg-white p-5 shadow-md">
@@ -120,10 +157,25 @@ export default async function AdminBookingsPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 md:justify-end">
+                  <form action={updateTime} className="flex flex-wrap items-center gap-2">
+                    <input type="hidden" name="bookingId" value={booking.id} />
+                    <label className="sr-only" htmlFor={`start-time-${booking.id}`}>New start time</label>
+                    <input
+                      id={`start-time-${booking.id}`}
+                      name="startTime"
+                      type="datetime-local"
+                      required
+                      defaultValue={toDateTimeInputValue(booking.startTime)}
+                      className="rounded-full border border-[#c9c3b8] bg-white px-4 py-2 text-sm font-bold text-[#12382b]"
+                    />
+                    <button className="w-fit rounded-full bg-[#f7c948] px-4 py-2 text-sm font-black text-[#12382b] transition hover:bg-[#ffd866]">
+                      Update time
+                    </button>
+                  </form>
                   <form action={rescheduleBooking}>
                     <input type="hidden" name="bookingId" value={booking.id} />
                     <button className="w-fit rounded-full bg-[#12382b] px-4 py-2 text-sm font-black text-white transition hover:bg-[#1f4b3b]">
-                      Reschedule
+                      Reschedule Link
                     </button>
                   </form>
                   <span className="w-fit rounded-full bg-[#f4f0e8] px-4 py-2 text-sm font-black text-[#12382b]">

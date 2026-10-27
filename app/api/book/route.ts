@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
-import { getBlackoutDatesForRange } from "@/lib/blackoutDates";
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
+import { buildPublicRescheduleUrl, cancelBookingGoogleEvent } from "@/lib/bookingReschedule";
 import { getMinimumBookingStartTime, MIN_BOOKING_LEAD_HOURS } from "@/lib/bookingRules";
 import { getBookingSettings, renderBookingDetails, renderBookingTemplate } from "@/lib/bookingSettings";
 import { createCalendarEvent, isGoogleApiTimeoutError } from "@/lib/googleCalendar";
@@ -18,6 +19,7 @@ type BookingRequest = {
   interviewSubject?: string;
   notes?: string;
   hubspotCompanyId?: string;
+  rescheduleToken?: string;
   startTime?: string;
 };
 
@@ -37,8 +39,10 @@ export async function POST(request: Request) {
     const interviewSubject = body.interviewSubject?.trim();
     const notes = body.notes?.trim() || null;
     const hubspotCompanyId = body.hubspotCompanyId?.trim() || null;
+    const submittedRescheduleToken = body.rescheduleToken?.trim() || null;
     const startTime = body.startTime ? new Date(body.startTime) : null;
     const customerName = [customerFirstName, customerLastName].filter(Boolean).join(" ");
+    const rescheduleToken = randomUUID();
 
     if (hubspotCompanyId && !isHubSpotConfigured()) {
       return NextResponse.json({ error: "HubSpot is not configured." }, { status: 500 });
@@ -73,6 +77,29 @@ export async function POST(request: Request) {
     }
 
     const settings = await getBookingSettings();
+    const rescheduledBooking = submittedRescheduleToken
+      ? await prisma.booking.findUnique({
+          where: { rescheduleToken: submittedRescheduleToken },
+          include: {
+            writer: {
+              select: {
+                googleRefreshToken: true,
+                googleCalendarId: true,
+              },
+            },
+            photographer: {
+              select: {
+                googleRefreshToken: true,
+                googleCalendarId: true,
+              },
+            },
+          },
+        })
+      : null;
+
+    if (submittedRescheduleToken && !rescheduledBooking) {
+      return NextResponse.json({ error: "That reschedule link is no longer valid." }, { status: 404 });
+    }
 
     if (settings.bookingEndDate && startTime > settings.bookingEndDate) {
       return NextResponse.json({ error: "Bookings are not available after the booking end date." }, { status: 400 });
@@ -92,9 +119,11 @@ export async function POST(request: Request) {
       endTime,
     };
     const eventTitle = renderBookingTemplate(settings.eventTitle, templateValues);
+    const rescheduleUrl = buildPublicRescheduleUrl(rescheduleToken);
     const eventDescription = [
       renderBookingTemplate(settings.eventDescription, templateValues),
       renderBookingDetails(templateValues),
+      `Reschedule this booking: ${rescheduleUrl}`,
     ].filter(Boolean).join("\n\n");
 
     // Re-query Google FreeBusy at booking time so stale UI availability cannot create a booking.
@@ -108,11 +137,6 @@ export async function POST(request: Request) {
     }
 
     const booking = await prisma.$transaction(async (tx) => {
-      // Re-check after Google FreeBusy in case an admin blocked the date meanwhile.
-      if ((await getBlackoutDatesForRange(startTime, endTime, tx)).size) {
-        throw new Error("BOOKING_CONFLICT");
-      }
-
       const conflict = await tx.booking.findFirst({
         where: {
           OR: [{ writerId: assigned.writer.id }, { photographerId: assigned.photographer.id }],
@@ -141,6 +165,7 @@ export async function POST(request: Request) {
           endTime,
           writerId: assigned.writer.id,
           photographerId: assigned.photographer.id,
+          rescheduleToken,
         },
       });
     }, serializableTransactionOptions);
@@ -152,6 +177,7 @@ export async function POST(request: Request) {
         customer: { name: customerName, email: customerEmail },
         title: eventTitle,
         description: eventDescription,
+        rescheduleUrl,
         location: photoshootLocation,
         startTime,
         endTime,
@@ -175,6 +201,23 @@ export async function POST(request: Request) {
       throw error;
     }
 
+    let rescheduledEventCanceled = false;
+
+    if (rescheduledBooking) {
+      try {
+        rescheduledEventCanceled = await cancelBookingGoogleEvent(rescheduledBooking);
+
+        if (rescheduledEventCanceled) {
+          await prisma.booking.update({
+            where: { id: rescheduledBooking.id },
+            data: { googleEventId: null },
+          });
+        }
+      } catch (error) {
+        console.error("Unable to cancel previous Google Calendar event after reschedule.", error);
+      }
+    }
+
     let hubspotUpdated = false;
 
     if (hubspotCompanyId) {
@@ -186,7 +229,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ bookingId: booking.id, hubspotUpdated }, { status: 201 });
+    return NextResponse.json({ bookingId: booking.id, hubspotUpdated, rescheduledEventCanceled }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "BOOKING_CONFLICT") {
       return NextResponse.json({ error: "That slot is no longer available." }, { status: 409 });

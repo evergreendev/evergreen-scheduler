@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { BookingClient, type BookingFormInitialValues } from "./BookingClient";
 import { getBookingSettings } from "@/lib/bookingSettings";
 
@@ -34,6 +33,7 @@ function getInitialBookingValues(searchParams: BookPageSearchParams): BookingFor
     peopleCount: firstParam(searchParams, ["peopleCount", "people", "people_count"]).trim(),
     interviewSubject: firstParam(searchParams, ["interviewSubject", "subject", "interview_subject"]).trim(),
     notes: firstParam(searchParams, ["notes", "note"]).trim(),
+    rescheduleToken: firstParam(searchParams, ["rescheduleToken", "reschedule_token"]).trim(),
     hubspotCompanyId: firstParam(searchParams, ["hubspotCompanyId", "hubspot_company_id", "companyId", "company_id"]).trim(),
   };
 }

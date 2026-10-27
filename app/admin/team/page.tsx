@@ -5,6 +5,7 @@ import { requireAdminPage } from "@/lib/adminAuth";
 import { getBookingSettings, parseBookingEndDate, toBookingEndDateInputValue, updateBookingSettings } from "@/lib/bookingSettings";
 import { prisma } from "@/lib/prisma";
 import { TeamPriorityList } from "@/app/admin/team/TeamPriorityList";
+import { BlackoutDateForm } from "@/app/admin/team/BlackoutDateForm";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +106,37 @@ async function updateEventSettings(formData: FormData) {
   revalidatePath("/book");
 }
 
+async function addBlackoutDate(_state: string, formData: FormData) {
+  "use server";
+
+  await requireAdminPage();
+  const date = String(formData.get("date") ?? "");
+  if (!parseBookingEndDate(date)) return "Choose a valid calendar date.";
+
+  try {
+    await prisma.blackoutDate.upsert({ where: { date }, create: { date }, update: {} });
+  } catch (error) {
+    console.error("Unable to add blackout date.", error);
+    return "Unable to add blackout date. Please try again.";
+  }
+
+  revalidatePath("/admin/team");
+  revalidatePath("/book");
+  return `${date} is blocked for all team members.`;
+}
+
+async function removeBlackoutDate(formData: FormData) {
+  "use server";
+
+  await requireAdminPage();
+  const date = String(formData.get("date") ?? "");
+  if (!parseBookingEndDate(date)) return;
+
+  await prisma.blackoutDate.deleteMany({ where: { date } });
+  revalidatePath("/admin/team");
+  revalidatePath("/book");
+}
+
 export default async function TeamPage({
   searchParams,
 }: {
@@ -114,6 +146,7 @@ export default async function TeamPage({
 
   const params = await searchParams;
   const settings = await getBookingSettings();
+  const blackoutDates = await prisma.blackoutDate.findMany({ orderBy: { date: "asc" } });
   const members = await prisma.teamMember.findMany({
     orderBy: [{ role: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
   });
@@ -184,6 +217,30 @@ export default async function TeamPage({
             </p>
             <button className="w-fit rounded-xl bg-[#12382b] px-5 py-3 font-bold text-white">Save event details</button>
           </form>
+        </section>
+
+        <section className="rounded-[1.5rem] bg-white p-6 shadow-lg">
+          <h2 className="text-2xl font-black">Blackout dates</h2>
+          <p className="mt-3 text-sm font-medium text-[#5f665f]">
+            Block a full date for everyone, regardless of Google Calendar availability. Dates use the scheduler&apos;s timezone.
+            Existing bookings are not canceled. Remove a date to allow bookings again, subject to normal availability.
+          </p>
+          <BlackoutDateForm addAction={addBlackoutDate} />
+          {blackoutDates.length ? (
+            <ul className="mt-4 divide-y divide-[#d8c7a3]">
+              {blackoutDates.map(({ date }) => (
+                <li key={date} className="flex items-center justify-between gap-4 py-3">
+                  <time dateTime={date} className="font-semibold">{date}</time>
+                  <form action={removeBlackoutDate}>
+                    <input type="hidden" name="date" value={date} />
+                    <button aria-label={`Remove blackout date ${date}`} className="rounded-xl border border-[#9f2f2f] px-4 py-2 font-bold text-[#9f2f2f]">
+                      Remove
+                    </button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="mt-4 text-sm text-[#5f665f]">No blackout dates added.</p>}
         </section>
 
         <section className="rounded-[1.5rem] bg-white p-6 shadow-lg">

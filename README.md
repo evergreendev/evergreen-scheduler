@@ -16,6 +16,19 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## Blackout dates
+
+Admins can add or remove full-day blackout dates on `/admin/team`. These override
+every team member's Google Calendar availability and are checked again when a
+booking is submitted. Existing bookings are not canceled. Dates follow the
+scheduler server's local timezone, matching its business hours.
+
+Apply database migrations before running the updated app:
+
+```bash
+npx prisma migrate deploy
+```
+
 ## Google OAuth
 
 Create a Google OAuth client with the **Web application** type, then add this exact Authorized redirect URI for local development:

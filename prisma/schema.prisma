@@ -53,6 +53,11 @@ model Booking {
   @@index([photographerId, startTime])
 }
 
+model BlackoutDate {
+  // Calendar date in YYYY-MM-DD format, using the scheduler's local timezone.
+  date String @id
+}
+
 model SchedulerSettings {
   id               String   @id @default("default")
   eventTitle       String   @default("Booking with {customerName}")

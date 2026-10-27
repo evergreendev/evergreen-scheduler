@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { getBlackoutDatesForRange } from "@/lib/blackoutDates";
 import { NextResponse } from "next/server";
 import { getMinimumBookingStartTime, MIN_BOOKING_LEAD_HOURS } from "@/lib/bookingRules";
 import { getBookingSettings, renderBookingDetails, renderBookingTemplate } from "@/lib/bookingSettings";
@@ -107,6 +108,11 @@ export async function POST(request: Request) {
     }
 
     const booking = await prisma.$transaction(async (tx) => {
+      // Re-check after Google FreeBusy in case an admin blocked the date meanwhile.
+      if ((await getBlackoutDatesForRange(startTime, endTime, tx)).size) {
+        throw new Error("BOOKING_CONFLICT");
+      }
+
       const conflict = await tx.booking.findFirst({
         where: {
           OR: [{ writerId: assigned.writer.id }, { photographerId: assigned.photographer.id }],

@@ -1,6 +1,8 @@
 import { Prisma, Role, type TeamMember } from "@prisma/client";
 import { getFreeBusy, type MemberBusyBlocks } from "@/lib/googleCalendar";
 import { prisma } from "@/lib/prisma";
+import { getBlackoutDatesForRange } from "@/lib/blackoutDates";
+import { toBookingEndDateInputValue } from "@/lib/bookingSettings";
 
 export const SLOT_MINUTES = 45;
 export const REQUIRED_ROLES = [Role.WRITER, Role.PHOTOGRAPHER] as const;
@@ -116,18 +118,19 @@ export async function getActiveNotificationOrganizer() {
 }
 
 export async function getAvailableSlots(rangeStart: Date, rangeEnd: Date): Promise<PublicSlot[]> {
+  const blackoutDates = await getBlackoutDatesForRange(rangeStart, rangeEnd);
+  const candidates = generateCandidateSlots(rangeStart, rangeEnd)
+    .filter((slot) => !blackoutDates.has(toBookingEndDateInputValue(slot.start)));
+
+  if (candidates.length === 0) return [];
+
   const [members, organizer] = await Promise.all([getActiveRequiredMembers(), getActiveNotificationOrganizer()]);
-  const candidates = generateCandidateSlots(rangeStart, rangeEnd);
 
   if (!members.some((member) => member.role === Role.WRITER) || !members.some((member) => member.role === Role.PHOTOGRAPHER)) {
     return [];
   }
 
   if (!organizer) {
-    return [];
-  }
-
-  if (candidates.length === 0) {
     return [];
   }
 
@@ -145,6 +148,8 @@ export async function getAvailableSlots(rangeStart: Date, rangeEnd: Date): Promi
 }
 
 export async function selectMembersForSlot(startTime: Date, endTime: Date): Promise<AssignedMembers | null> {
+  if ((await getBlackoutDatesForRange(startTime, endTime)).size) return null;
+
   const members = await getActiveRequiredMembers();
 
   if (!members.length) return null;
